@@ -238,79 +238,47 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
 // OBJECT PROCESSING FUNCTIONS
 // ----------------------------------------------------------------------------
 
-// Forward declaration
-void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDepth, bool isFirst)
-
-// Process children of an object
-void processChildren(Object parentObj, Buffer childBuf, int indent, int currentDepth) {
-    Object childObj
-    bool hasChildren
-    bool firstChild
-
-    hasChildren = false
-    firstChild = true
-
-    childBuf += getIndent(indent) "\"children\": [\n"
-
-    for childObj in parentObj do {
-        hasChildren = true
-        processObjectRecursive(childObj, childBuf, indent + 1, currentDepth, firstChild)
-        firstChild = false
-    }
-
-    childBuf += "\n" getIndent(indent) "]"
-}
-
-// Process a single object recursively
-void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDepth, bool isFirst) {
+// Process all objects in a module as a flat array
+void processAllObjects(Module mod, Buffer modBuf, int indent, int currentDepth) {
+    Object obj
     Buffer attrBuf
     Buffer linkBuf
-    Buffer childBuf
-    Object childObj
-    bool hasChildren
+    bool firstObj
+    int objLevel
 
-    if (!isFirst) {
-        objBuf += ",\n"
+    firstObj = true
+
+    for obj in entire mod do {
+        if (!firstObj) {
+            modBuf += ",\n"
+        }
+        firstObj = false
+
+        totalObjects++
+        objLevel = level(obj)
+
+        modBuf += getIndent(indent) "{\n"
+
+        // Basic object information
+        modBuf += getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
+        modBuf += ",\n" getIndent(indent + 1) "\"level\": " objLevel ""
+        modBuf += ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
+
+        // Extract all attributes
+        attrBuf = create()
+        extractAttributes(obj, attrBuf, indent + 1)
+        modBuf += tempStringOf(attrBuf)
+        delete(attrBuf)
+
+        // Extract links
+        modBuf += ",\n"
+        linkBuf = create()
+        extractLinks(obj, linkBuf, indent + 1, currentDepth)
+        modBuf += tempStringOf(linkBuf)
+        delete(linkBuf)
+
+        modBuf += "\n" getIndent(indent) "}"
     }
-
-    totalObjects++
-
-    objBuf += getIndent(indent) "{\n"
-
-    // Basic object information
-    objBuf += getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
-    objBuf += ",\n" getIndent(indent + 1) "\"level\": " level(obj) ""
-    objBuf += ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
-
-    // Extract all attributes
-    attrBuf = create()
-    extractAttributes(obj, attrBuf, indent + 1)
-    objBuf += tempStringOf(attrBuf)
-    delete(attrBuf)
-
-    // Extract links
-    objBuf += ",\n"
-    linkBuf = create()
-    extractLinks(obj, linkBuf, indent + 1, currentDepth)
-    objBuf += tempStringOf(linkBuf)
-    delete(linkBuf)
-
-    // Process children
-    hasChildren = false
-    for childObj in obj do {
-        hasChildren = true
-        break
-    }
-
-    if (hasChildren) {
-        objBuf += ",\n"
-        childBuf = create()
-        processChildren(obj, childBuf, indent + 1, currentDepth)
-        objBuf += tempStringOf(childBuf)
-        delete(childBuf)
-    }
-
-    objBuf += "\n" getIndent(indent) "}"
 }
 
 // ----------------------------------------------------------------------------
@@ -320,8 +288,6 @@ void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDe
 // Process a single module and all its objects
 void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
     Module mod
-    Object obj
-    bool firstObj
 
     // Check if already visited
     if (find(visitedModules, modulePath)) {
@@ -352,14 +318,8 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
     modBuf += getIndent(3) "\"depth\": " depth ",\n"
     modBuf += getIndent(3) "\"objects\": [\n"
 
-    // Process all objects at root level
-    firstObj = true
-    for obj in entire mod do {
-        if (level(obj) == 1) {  // Only process top-level objects
-            processObjectRecursive(obj, modBuf, 4, depth, firstObj)
-            firstObj = false
-        }
-    }
+    // Process all objects iteratively
+    processAllObjects(mod, modBuf, 4, depth)
 
     modBuf += "\n" getIndent(3) "]\n"
     modBuf += getIndent(2) "}"
@@ -389,7 +349,7 @@ void exportToJSON(string rootModulePath) {
     print "===========================================\n\n"
 
     // Get current date/time
-    exportDate = dateAndTime(today)
+    exportDate = dateAndTime(today())
 
     // Start JSON structure
     jsonOutput += "{\n"
