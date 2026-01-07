@@ -9,19 +9,31 @@
 pragma runLim, 0  // Disable execution timeout
 
 // ----------------------------------------------------------------------------
-// GLOBAL CONFIGURATION
+// GLOBAL CONFIGURATION - EDIT THESE VALUES
 // ----------------------------------------------------------------------------
-int MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
-string OUTPUT_FILE = "output.json"
+int MAX_DEPTH
+string OUTPUT_FILE
+string ROOT_MODULE_PATH  // Set this to your module path before running
 
 // ----------------------------------------------------------------------------
 // GLOBAL VARIABLES
 // ----------------------------------------------------------------------------
-Skip visitedModules = create()  // Track visited modules to prevent duplicates
-Buffer jsonOutput = create()    // Main JSON output buffer
-int totalObjects = 0            // Counter for total objects processed
-int totalModules = 0            // Counter for total modules processed
-Skip linkedModuleQueue = create()  // Queue of linked modules to process
+Skip visitedModules
+Buffer jsonOutput
+int totalObjects
+int totalModules
+Skip linkedModuleQueue
+
+// Initialize globals - EDIT ROOT_MODULE_PATH before running
+MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
+OUTPUT_FILE = "output.json"
+ROOT_MODULE_PATH = "/ProjectA/HLR"  // <-- CHANGE THIS to your module path
+
+visitedModules = create()  // Track visited modules to prevent duplicates
+jsonOutput = create()      // Main JSON output buffer
+totalObjects = 0           // Counter for total objects processed
+totalModules = 0           // Counter for total modules processed
+linkedModuleQueue = create()  // Queue of linked modules to process
 
 // ----------------------------------------------------------------------------
 // UTILITY FUNCTIONS
@@ -394,10 +406,11 @@ void exportToJSON(string rootModulePath) {
     firstLinked = false
 
     for linkedPath in linkedModuleQueue do {
-        linkedDepth = (int linkedModuleQueue[linkedPath])
-        if (linkedDepth < MAX_DEPTH) {
-            processModule(linkedPath, linkedDepth, moduleBuf, firstLinked)
-            firstLinked = false
+        if (find(linkedModuleQueue, linkedPath, linkedDepth)) {
+            if (linkedDepth < MAX_DEPTH) {
+                processModule(linkedPath, linkedDepth, moduleBuf, firstLinked)
+                firstLinked = false
+            }
         }
     }
 
@@ -434,29 +447,25 @@ void exportToJSON(string rootModulePath) {
 // MAIN SCRIPT ENTRY POINT
 // ----------------------------------------------------------------------------
 
-string modulePath
-
-// Check command line arguments
-if (argc < 2) {
+// Check if module path is configured
+if (null ROOT_MODULE_PATH || ROOT_MODULE_PATH == "") {
     print "\n"
     print "===========================================\n"
     print "DOORS to JSON Export Script\n"
     print "===========================================\n"
-    print "Usage: doors -batch export_to_json.dxl <module_path>\n"
+    print "ERROR: ROOT_MODULE_PATH is not set!\n"
     print "\n"
-    print "Arguments:\n"
-    print "  module_path  Full path to DOORS module\n"
+    print "Please edit the script and set ROOT_MODULE_PATH\n"
+    print "at line 30 to your module path.\n"
     print "\n"
     print "Example:\n"
-    print "  doors -batch export_to_json.dxl \"/Project/Requirements\"\n"
+    print "  ROOT_MODULE_PATH = \"/Project/Requirements\"\n"
     print "===========================================\n\n"
     halt
 }
 
-modulePath = argv[1]
-
 // Run the export
-exportToJSON(modulePath)
+exportToJSON(ROOT_MODULE_PATH)
 
 // Cleanup
 delete(visitedModules)
