@@ -11,8 +11,8 @@ pragma runLim, 0  // Disable execution timeout
 // ----------------------------------------------------------------------------
 // GLOBAL CONFIGURATION
 // ----------------------------------------------------------------------------
-const int MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
-const string OUTPUT_FILE = "output.json"
+int MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
+string OUTPUT_FILE = "output.json"
 
 // ----------------------------------------------------------------------------
 // GLOBAL VARIABLES
@@ -29,13 +29,19 @@ Skip linkedModuleQueue = create()  // Queue of linked modules to process
 
 // Escape special characters for JSON string values
 string escapeJSON(string value) {
+    Buffer buf
+    int len
+    int i
+    string c
+    string result
+
     if (null value) return ""
 
-    Buffer buf = create()
-    int len = length(value)
+    buf = create()
+    len = length(value)
 
-    for (int i = 0; i < len; i++) {
-        string c = value[i:i]
+    for (i = 0; i < len; i++) {
+        c = value[i:i]
 
         if (c == "\\") {
             buf += "\\\\"
@@ -52,18 +58,22 @@ string escapeJSON(string value) {
         }
     }
 
-    string result = tempStringOf(buf)
+    result = tempStringOf(buf)
     delete(buf)
     return result
 }
 
 // Get indentation string
 string getIndent(int level) {
-    Buffer buf = create()
-    for (int i = 0; i < level; i++) {
+    Buffer buf
+    int i
+    string result
+
+    buf = create()
+    for (i = 0; i < level; i++) {
         buf += "  "
     }
-    string result = tempStringOf(buf)
+    result = tempStringOf(buf)
     delete(buf)
     return result
 }
@@ -80,22 +90,33 @@ string dateToISO(string dateStr) {
 
 // Extract links from an object and add to JSON buffer
 void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
-    bool hasLinks = false
-    bool firstLink = true
+    bool hasLinks
+    bool firstLink
+    Link lnk
+    Object targetObj
+    Object sourceObj
+    Module targetMod
+    Module sourceMod
+    string targetModPath
+    string sourceModPath
+    string linkModName
+    string currentModPath
+
+    hasLinks = false
+    firstLink = true
 
     linkBuf += getIndent(indent) "\"links\": [\n"
 
     // Process outgoing links
-    Link lnk
     for lnk in obj -> "*" do {
         if (!hasLinks) hasLinks = true
         if (!firstLink) linkBuf += ",\n"
         firstLink = false
 
-        Object targetObj = target(lnk)
-        Module targetMod = module(targetObj)
-        string targetModPath = fullName(targetMod)
-        string linkModName = name(module(lnk))
+        targetObj = target(lnk)
+        targetMod = module(targetObj)
+        targetModPath = fullName(targetMod)
+        linkModName = name(module(lnk))
 
         linkBuf += getIndent(indent + 1) "{\n"
         linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
@@ -106,7 +127,7 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
 
         // Queue target module if it's different and within depth limit
         if (currentDepth < MAX_DEPTH - 1) {
-            string currentModPath = fullName(module(obj))
+            currentModPath = fullName(module(obj))
             if (targetModPath != currentModPath && !find(visitedModules, targetModPath)) {
                 put(linkedModuleQueue, targetModPath, currentDepth + 1)
             }
@@ -119,10 +140,10 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
         if (!firstLink) linkBuf += ",\n"
         firstLink = false
 
-        Object sourceObj = source(lnk)
-        Module sourceMod = module(sourceObj)
-        string sourceModPath = fullName(sourceMod)
-        string linkModName = name(module(lnk))
+        sourceObj = source(lnk)
+        sourceMod = module(sourceObj)
+        sourceModPath = fullName(sourceMod)
+        linkModName = name(module(lnk))
 
         linkBuf += getIndent(indent + 1) "{\n"
         linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
@@ -133,7 +154,7 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
 
         // Queue source module if it's different and within depth limit
         if (currentDepth < MAX_DEPTH - 1) {
-            string currentModPath = fullName(module(obj))
+            currentModPath = fullName(module(obj))
             if (sourceModPath != currentModPath && !find(visitedModules, sourceModPath)) {
                 put(linkedModuleQueue, sourceModPath, currentDepth + 1)
             }
@@ -149,38 +170,52 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
 
 // Extract all non-empty attributes from an object
 void extractAttributes(Object obj, Buffer attrBuf, int indent) {
-    Module m = module(obj)
+    Module m
     AttrDef ad
+    string attrName
+    string attrTypeName
+    string value
+    int iValue
+    real rValue
+    Date dValue
+    bool bValue
+    string bStr
+
+    m = module(obj)
 
     for ad in m do {
-        string attrName = ad.name
-        string attrTypeName = ad.typeName
+        attrName = ad.name
+        attrTypeName = ad.typeName
 
         // Get attribute value based on type
         if (attrTypeName == "Text" || attrTypeName == "String" || attrTypeName == "RichText") {
-            string value = obj.(attrName)
+            value = obj.(attrName)
             if (!null value && value != "") {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
             }
         } else if (attrTypeName == "Integer") {
-            int iValue = obj.(attrName)
+            iValue = obj.(attrName)
             if (!null iValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
             }
         } else if (attrTypeName == "Real") {
-            real rValue = obj.(attrName)
+            rValue = obj.(attrName)
             if (!null rValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
             }
         } else if (attrTypeName == "Date") {
-            Date dValue = obj.(attrName)
+            dValue = obj.(attrName)
             if (!null dValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dateAndTime(dValue)) "\""
             }
         } else if (attrTypeName == "Boolean") {
-            bool bValue = obj.(attrName)
+            bValue = obj.(attrName)
             if (!null bValue) {
-                string bStr = bValue ? "true" : "false"
+                if (bValue) {
+                    bStr = "true"
+                } else {
+                    bStr = "false"
+                }
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " bStr ""
             }
         }
@@ -197,8 +232,11 @@ void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDe
 // Process children of an object
 void processChildren(Object parentObj, Buffer childBuf, int indent, int currentDepth) {
     Object childObj
-    bool hasChildren = false
-    bool firstChild = true
+    bool hasChildren
+    bool firstChild
+
+    hasChildren = false
+    firstChild = true
 
     childBuf += getIndent(indent) "\"children\": [\n"
 
@@ -213,6 +251,12 @@ void processChildren(Object parentObj, Buffer childBuf, int indent, int currentD
 
 // Process a single object recursively
 void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDepth, bool isFirst) {
+    Buffer attrBuf
+    Buffer linkBuf
+    Buffer childBuf
+    Object childObj
+    bool hasChildren
+
     if (!isFirst) {
         objBuf += ",\n"
     }
@@ -227,21 +271,20 @@ void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDe
     objBuf += ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
 
     // Extract all attributes
-    Buffer attrBuf = create()
+    attrBuf = create()
     extractAttributes(obj, attrBuf, indent + 1)
     objBuf += tempStringOf(attrBuf)
     delete(attrBuf)
 
     // Extract links
     objBuf += ",\n"
-    Buffer linkBuf = create()
+    linkBuf = create()
     extractLinks(obj, linkBuf, indent + 1, currentDepth)
     objBuf += tempStringOf(linkBuf)
     delete(linkBuf)
 
     // Process children
-    Object childObj
-    bool hasChildren = false
+    hasChildren = false
     for childObj in obj do {
         hasChildren = true
         break
@@ -249,7 +292,7 @@ void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDe
 
     if (hasChildren) {
         objBuf += ",\n"
-        Buffer childBuf = create()
+        childBuf = create()
         processChildren(obj, childBuf, indent + 1, currentDepth)
         objBuf += tempStringOf(childBuf)
         delete(childBuf)
@@ -264,6 +307,10 @@ void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDe
 
 // Process a single module and all its objects
 void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
+    Module mod
+    Object obj
+    bool firstObj
+
     // Check if already visited
     if (find(visitedModules, modulePath)) {
         print "  Skipping already visited module: " modulePath "\n"
@@ -277,7 +324,7 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
     totalModules++
 
     // Open module
-    Module mod = read(modulePath, false)
+    mod = read(modulePath, false)
     if (null mod) {
         print "  ERROR: Cannot open module: " modulePath "\n"
         return
@@ -294,8 +341,7 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
     modBuf += getIndent(3) "\"objects\": [\n"
 
     // Process all objects at root level
-    Object obj
-    bool firstObj = true
+    firstObj = true
     for obj in entire mod do {
         if (level(obj) == 1) {  // Only process top-level objects
             processObjectRecursive(obj, modBuf, 4, depth, firstObj)
@@ -315,6 +361,13 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
 // ----------------------------------------------------------------------------
 
 void exportToJSON(string rootModulePath) {
+    string exportDate
+    Buffer moduleBuf
+    string linkedPath
+    int linkedDepth
+    bool firstLinked
+    Stream outFile
+
     print "\n===========================================\n"
     print "DOORS to JSON Export\n"
     print "===========================================\n"
@@ -324,7 +377,7 @@ void exportToJSON(string rootModulePath) {
     print "===========================================\n\n"
 
     // Get current date/time
-    string exportDate = dateAndTime(today)
+    exportDate = dateAndTime(today)
 
     // Start JSON structure
     jsonOutput += "{\n"
@@ -334,13 +387,11 @@ void exportToJSON(string rootModulePath) {
     jsonOutput += getIndent(1) "\"modules\": [\n"
 
     // Process root module
-    Buffer moduleBuf = create()
+    moduleBuf = create()
     processModule(rootModulePath, 0, moduleBuf, true)
 
     // Process linked modules from queue
-    string linkedPath
-    int linkedDepth
-    bool firstLinked = false
+    firstLinked = false
 
     for linkedPath in linkedModuleQueue do {
         linkedDepth = (int linkedModuleQueue[linkedPath])
@@ -361,7 +412,7 @@ void exportToJSON(string rootModulePath) {
     print "\n===========================================\n"
     print "Writing output to file...\n"
 
-    Stream outFile = write(OUTPUT_FILE)
+    outFile = write(OUTPUT_FILE)
     if (null outFile) {
         print "ERROR: Cannot create output file: " OUTPUT_FILE "\n"
         return
@@ -383,6 +434,8 @@ void exportToJSON(string rootModulePath) {
 // MAIN SCRIPT ENTRY POINT
 // ----------------------------------------------------------------------------
 
+string modulePath
+
 // Check command line arguments
 if (argc < 2) {
     print "\n"
@@ -400,7 +453,7 @@ if (argc < 2) {
     halt
 }
 
-string modulePath = argv[1]
+modulePath = argv[1]
 
 // Run the export
 exportToJSON(modulePath)
