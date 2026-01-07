@@ -149,34 +149,35 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
 
 // Extract all non-empty attributes from an object
 void extractAttributes(Object obj, Buffer attrBuf, int indent) {
+    Module m = module(obj)
     AttrDef ad
 
-    for ad in obj do {
-        AttrType at = type(ad)
-        string attrName = name(ad)
+    for ad in m do {
+        string attrName = ad.name
+        string attrTypeName = ad.typeName
 
         // Get attribute value based on type
-        if (at == attrText_ || at == attrString_) {
+        if (attrTypeName == "Text" || attrTypeName == "String" || attrTypeName == "RichText") {
             string value = obj.(attrName)
             if (!null value && value != "") {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
             }
-        } else if (at == attrInt_) {
+        } else if (attrTypeName == "Integer") {
             int iValue = obj.(attrName)
             if (!null iValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
             }
-        } else if (at == attrReal_) {
+        } else if (attrTypeName == "Real") {
             real rValue = obj.(attrName)
             if (!null rValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
             }
-        } else if (at == attrDate_) {
-            string dValue = obj.(attrName)
-            if (!null dValue && dValue != "") {
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dValue) "\""
+        } else if (attrTypeName == "Date") {
+            Date dValue = obj.(attrName)
+            if (!null dValue) {
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dateAndTime(dValue)) "\""
             }
-        } else if (at == attrBoolean_) {
+        } else if (attrTypeName == "Boolean") {
             bool bValue = obj.(attrName)
             if (!null bValue) {
                 string bStr = bValue ? "true" : "false"
