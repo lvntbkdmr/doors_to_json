@@ -1,0 +1,410 @@
+// ============================================================================
+// DOORS to JSON Export Script
+// ============================================================================
+// Purpose: Export DOORS module and linked modules to JSON format
+// Usage: Run in batch mode with module path as argument
+// Output: output.json in script directory
+// ============================================================================
+
+pragma runLim, 0  // Disable execution timeout
+
+// ----------------------------------------------------------------------------
+// GLOBAL CONFIGURATION
+// ----------------------------------------------------------------------------
+const int MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
+const string OUTPUT_FILE = "output.json"
+
+// ----------------------------------------------------------------------------
+// GLOBAL VARIABLES
+// ----------------------------------------------------------------------------
+Skip visitedModules = create()  // Track visited modules to prevent duplicates
+Buffer jsonOutput = create()    // Main JSON output buffer
+int totalObjects = 0            // Counter for total objects processed
+int totalModules = 0            // Counter for total modules processed
+Skip linkedModuleQueue = create()  // Queue of linked modules to process
+
+// ----------------------------------------------------------------------------
+// UTILITY FUNCTIONS
+// ----------------------------------------------------------------------------
+
+// Escape special characters for JSON string values
+string escapeJSON(string value) {
+    if (null value) return ""
+
+    Buffer buf = create()
+    int len = length(value)
+
+    for (int i = 0; i < len; i++) {
+        string c = value[i:i]
+
+        if (c == "\\") {
+            buf += "\\\\"
+        } else if (c == "\"") {
+            buf += "\\\""
+        } else if (c == "\n") {
+            buf += "\\n"
+        } else if (c == "\r") {
+            buf += "\\r"
+        } else if (c == "\t") {
+            buf += "\\t"
+        } else {
+            buf += c
+        }
+    }
+
+    string result = tempStringOf(buf)
+    delete(buf)
+    return result
+}
+
+// Get indentation string
+string getIndent(int level) {
+    Buffer buf = create()
+    for (int i = 0; i < level; i++) {
+        buf += "  "
+    }
+    string result = tempStringOf(buf)
+    delete(buf)
+    return result
+}
+
+// Convert date to ISO string
+string dateToISO(string dateStr) {
+    if (null dateStr || dateStr == "") return ""
+    return escapeJSON(dateStr)
+}
+
+// ----------------------------------------------------------------------------
+// LINK PROCESSING FUNCTIONS
+// ----------------------------------------------------------------------------
+
+// Extract links from an object and add to JSON buffer
+void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
+    bool hasLinks = false
+    bool firstLink = true
+
+    linkBuf += getIndent(indent) "\"links\": [\n"
+
+    // Process outgoing links
+    Link lnk
+    for lnk in obj -> "*" do {
+        if (!hasLinks) hasLinks = true
+        if (!firstLink) linkBuf += ",\n"
+        firstLink = false
+
+        Object targetObj = target(lnk)
+        Module targetMod = module(targetObj)
+        string targetModPath = fullName(targetMod)
+        string linkModName = name(module(lnk))
+
+        linkBuf += getIndent(indent + 1) "{\n"
+        linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
+        linkBuf += getIndent(indent + 2) "\"direction\": \"outgoing\",\n"
+        linkBuf += getIndent(indent + 2) "\"targetModule\": \"" escapeJSON(targetModPath) "\",\n"
+        linkBuf += getIndent(indent + 2) "\"targetObjectId\": \"" escapeJSON(identifier(targetObj)) "\"\n"
+        linkBuf += getIndent(indent + 1) "}"
+
+        // Queue target module if it's different and within depth limit
+        if (currentDepth < MAX_DEPTH - 1) {
+            string currentModPath = fullName(module(obj))
+            if (targetModPath != currentModPath && !find(visitedModules, targetModPath)) {
+                put(linkedModuleQueue, targetModPath, currentDepth + 1)
+            }
+        }
+    }
+
+    // Process incoming links
+    for lnk in obj <- "*" do {
+        if (!hasLinks) hasLinks = true
+        if (!firstLink) linkBuf += ",\n"
+        firstLink = false
+
+        Object sourceObj = source(lnk)
+        Module sourceMod = module(sourceObj)
+        string sourceModPath = fullName(sourceMod)
+        string linkModName = name(module(lnk))
+
+        linkBuf += getIndent(indent + 1) "{\n"
+        linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
+        linkBuf += getIndent(indent + 2) "\"direction\": \"incoming\",\n"
+        linkBuf += getIndent(indent + 2) "\"sourceModule\": \"" escapeJSON(sourceModPath) "\",\n"
+        linkBuf += getIndent(indent + 2) "\"sourceObjectId\": \"" escapeJSON(identifier(sourceObj)) "\"\n"
+        linkBuf += getIndent(indent + 1) "}"
+
+        // Queue source module if it's different and within depth limit
+        if (currentDepth < MAX_DEPTH - 1) {
+            string currentModPath = fullName(module(obj))
+            if (sourceModPath != currentModPath && !find(visitedModules, sourceModPath)) {
+                put(linkedModuleQueue, sourceModPath, currentDepth + 1)
+            }
+        }
+    }
+
+    linkBuf += "\n" getIndent(indent) "]"
+}
+
+// ----------------------------------------------------------------------------
+// ATTRIBUTE EXTRACTION FUNCTIONS
+// ----------------------------------------------------------------------------
+
+// Extract all non-empty attributes from an object
+void extractAttributes(Object obj, Buffer attrBuf, int indent) {
+    AttrDef ad
+
+    for ad in obj do {
+        AttrType at = type(ad)
+        string attrName = name(ad)
+
+        // Get attribute value based on type
+        if (at == attrText_ || at == attrString_) {
+            string value = obj.(attrName)
+            if (!null value && value != "") {
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
+            }
+        } else if (at == attrInt_) {
+            int iValue = obj.(attrName)
+            if (!null iValue) {
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
+            }
+        } else if (at == attrReal_) {
+            real rValue = obj.(attrName)
+            if (!null rValue) {
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
+            }
+        } else if (at == attrDate_) {
+            string dValue = obj.(attrName)
+            if (!null dValue && dValue != "") {
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dValue) "\""
+            }
+        } else if (at == attrBoolean_) {
+            bool bValue = obj.(attrName)
+            if (!null bValue) {
+                string bStr = bValue ? "true" : "false"
+                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " bStr ""
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// OBJECT PROCESSING FUNCTIONS
+// ----------------------------------------------------------------------------
+
+// Forward declaration
+void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDepth, bool isFirst)
+
+// Process children of an object
+void processChildren(Object parentObj, Buffer childBuf, int indent, int currentDepth) {
+    Object childObj
+    bool hasChildren = false
+    bool firstChild = true
+
+    childBuf += getIndent(indent) "\"children\": [\n"
+
+    for childObj in parentObj do {
+        hasChildren = true
+        processObjectRecursive(childObj, childBuf, indent + 1, currentDepth, firstChild)
+        firstChild = false
+    }
+
+    childBuf += "\n" getIndent(indent) "]"
+}
+
+// Process a single object recursively
+void processObjectRecursive(Object obj, Buffer objBuf, int indent, int currentDepth, bool isFirst) {
+    if (!isFirst) {
+        objBuf += ",\n"
+    }
+
+    totalObjects++
+
+    objBuf += getIndent(indent) "{\n"
+
+    // Basic object information
+    objBuf += getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
+    objBuf += ",\n" getIndent(indent + 1) "\"level\": " level(obj) ""
+    objBuf += ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
+
+    // Extract all attributes
+    Buffer attrBuf = create()
+    extractAttributes(obj, attrBuf, indent + 1)
+    objBuf += tempStringOf(attrBuf)
+    delete(attrBuf)
+
+    // Extract links
+    objBuf += ",\n"
+    Buffer linkBuf = create()
+    extractLinks(obj, linkBuf, indent + 1, currentDepth)
+    objBuf += tempStringOf(linkBuf)
+    delete(linkBuf)
+
+    // Process children
+    Object childObj
+    bool hasChildren = false
+    for childObj in obj do {
+        hasChildren = true
+        break
+    }
+
+    if (hasChildren) {
+        objBuf += ",\n"
+        Buffer childBuf = create()
+        processChildren(obj, childBuf, indent + 1, currentDepth)
+        objBuf += tempStringOf(childBuf)
+        delete(childBuf)
+    }
+
+    objBuf += "\n" getIndent(indent) "}"
+}
+
+// ----------------------------------------------------------------------------
+// MODULE PROCESSING FUNCTIONS
+// ----------------------------------------------------------------------------
+
+// Process a single module and all its objects
+void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
+    // Check if already visited
+    if (find(visitedModules, modulePath)) {
+        print "  Skipping already visited module: " modulePath "\n"
+        return
+    }
+
+    print "Processing module (depth " depth "): " modulePath "\n"
+
+    // Mark as visited
+    put(visitedModules, modulePath, depth)
+    totalModules++
+
+    // Open module
+    Module mod = read(modulePath, false)
+    if (null mod) {
+        print "  ERROR: Cannot open module: " modulePath "\n"
+        return
+    }
+
+    if (!isFirst) {
+        modBuf += ",\n"
+    }
+
+    modBuf += getIndent(2) "{\n"
+    modBuf += getIndent(3) "\"modulePath\": \"" escapeJSON(modulePath) "\",\n"
+    modBuf += getIndent(3) "\"moduleName\": \"" escapeJSON(name(mod)) "\",\n"
+    modBuf += getIndent(3) "\"depth\": " depth ",\n"
+    modBuf += getIndent(3) "\"objects\": [\n"
+
+    // Process all objects at root level
+    Object obj
+    bool firstObj = true
+    for obj in entire mod do {
+        if (level(obj) == 1) {  // Only process top-level objects
+            processObjectRecursive(obj, modBuf, 4, depth, firstObj)
+            firstObj = false
+        }
+    }
+
+    modBuf += "\n" getIndent(3) "]\n"
+    modBuf += getIndent(2) "}"
+
+    close(mod)
+    print "  Completed module: " modulePath " (depth " depth ")\n"
+}
+
+// ----------------------------------------------------------------------------
+// MAIN EXPORT FUNCTION
+// ----------------------------------------------------------------------------
+
+void exportToJSON(string rootModulePath) {
+    print "\n===========================================\n"
+    print "DOORS to JSON Export\n"
+    print "===========================================\n"
+    print "Root module: " rootModulePath "\n"
+    print "Max depth: " MAX_DEPTH "\n"
+    print "Output file: " OUTPUT_FILE "\n"
+    print "===========================================\n\n"
+
+    // Get current date/time
+    string exportDate = dateAndTime(today)
+
+    // Start JSON structure
+    jsonOutput += "{\n"
+    jsonOutput += getIndent(1) "\"exportDate\": \"" escapeJSON(exportDate) "\",\n"
+    jsonOutput += getIndent(1) "\"rootModule\": \"" escapeJSON(rootModulePath) "\",\n"
+    jsonOutput += getIndent(1) "\"maxDepth\": " MAX_DEPTH ",\n"
+    jsonOutput += getIndent(1) "\"modules\": [\n"
+
+    // Process root module
+    Buffer moduleBuf = create()
+    processModule(rootModulePath, 0, moduleBuf, true)
+
+    // Process linked modules from queue
+    string linkedPath
+    int linkedDepth
+    bool firstLinked = false
+
+    for linkedPath in linkedModuleQueue do {
+        linkedDepth = (int linkedModuleQueue[linkedPath])
+        if (linkedDepth < MAX_DEPTH) {
+            processModule(linkedPath, linkedDepth, moduleBuf, firstLinked)
+            firstLinked = false
+        }
+    }
+
+    jsonOutput += tempStringOf(moduleBuf)
+    delete(moduleBuf)
+
+    // Close JSON structure
+    jsonOutput += "\n" getIndent(1) "]\n"
+    jsonOutput += "}\n"
+
+    // Write to file
+    print "\n===========================================\n"
+    print "Writing output to file...\n"
+
+    Stream outFile = write(OUTPUT_FILE)
+    if (null outFile) {
+        print "ERROR: Cannot create output file: " OUTPUT_FILE "\n"
+        return
+    }
+
+    outFile << tempStringOf(jsonOutput)
+    close(outFile)
+
+    print "===========================================\n"
+    print "Export completed successfully!\n"
+    print "===========================================\n"
+    print "Total modules processed: " totalModules "\n"
+    print "Total objects processed: " totalObjects "\n"
+    print "Output file: " OUTPUT_FILE "\n"
+    print "===========================================\n\n"
+}
+
+// ----------------------------------------------------------------------------
+// MAIN SCRIPT ENTRY POINT
+// ----------------------------------------------------------------------------
+
+// Check command line arguments
+if (argc < 2) {
+    print "\n"
+    print "===========================================\n"
+    print "DOORS to JSON Export Script\n"
+    print "===========================================\n"
+    print "Usage: doors -batch export_to_json.dxl <module_path>\n"
+    print "\n"
+    print "Arguments:\n"
+    print "  module_path  Full path to DOORS module\n"
+    print "\n"
+    print "Example:\n"
+    print "  doors -batch export_to_json.dxl \"/Project/Requirements\"\n"
+    print "===========================================\n\n"
+    halt
+}
+
+string modulePath = argv[1]
+
+// Run the export
+exportToJSON(modulePath)
+
+// Cleanup
+delete(visitedModules)
+delete(linkedModuleQueue)
+delete(jsonOutput)
