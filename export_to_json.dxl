@@ -192,6 +192,7 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
     Date dValue
     bool bValue
     string bStr
+    bool attrExists
 
     m = module(obj)
 
@@ -199,30 +200,36 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
         attrName = ad.name
         attrTypeName = ad.typeName
 
+        // Skip Description attribute which may not be accessible on all objects
+        if (attrName == "Description") continue
+
+        // Use error suppression to handle inaccessible attributes
+        noError
+
         // Get attribute value based on type
         if (attrTypeName == "Text" || attrTypeName == "String" || attrTypeName == "RichText") {
             value = obj.(attrName)
-            if (!null value && value != "") {
+            if (lastError() == "" && !null value && value != "") {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
             }
         } else if (attrTypeName == "Integer") {
             iValue = obj.(attrName)
-            if (!null iValue) {
+            if (lastError() == "" && !null iValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
             }
         } else if (attrTypeName == "Real") {
             rValue = obj.(attrName)
-            if (!null rValue) {
+            if (lastError() == "" && !null rValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
             }
         } else if (attrTypeName == "Date") {
             dValue = obj.(attrName)
-            if (!null dValue) {
+            if (lastError() == "" && !null dValue) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dateAndTime(dValue)) "\""
             }
         } else if (attrTypeName == "Boolean") {
             bValue = obj.(attrName)
-            if (!null bValue) {
+            if (lastError() == "" && !null bValue) {
                 if (bValue) {
                     bStr = "true"
                 } else {
@@ -231,6 +238,9 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
                 attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " bStr ""
             }
         }
+
+        // Clear any errors and restore error handling
+        lastError()
     }
 }
 
@@ -249,6 +259,9 @@ void processAllObjects(Module mod, Buffer modBuf, int indent, int currentDepth) 
     firstObj = true
 
     for obj in entire mod do {
+        // Skip deleted objects
+        if (isDeleted(obj)) continue
+
         if (!firstObj) {
             modBuf += ",\n"
         }
