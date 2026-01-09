@@ -333,7 +333,6 @@ void processModule(string modulePath, int depth, bool isFirst) {
 // ----------------------------------------------------------------------------
 
 void exportToJSON(string rootModulePath) {
-    string exportDate
     string linkedPath
     int linkedDepth
     bool firstLinked
@@ -354,12 +353,8 @@ void exportToJSON(string rootModulePath) {
         return
     }
 
-    // Get current date/time
-    exportDate = dateAndTime(today())
-
     // Write JSON header directly to file
     outFile << "{\n"
-    outFile << getIndent(1) "\"exportDate\": \"" escapeJSON(exportDate) "\",\n"
     outFile << getIndent(1) "\"rootModule\": \"" escapeJSON(rootModulePath) "\",\n"
     outFile << getIndent(1) "\"maxDepth\": " MAX_DEPTH ",\n"
     outFile << getIndent(1) "\"modules\": [\n"
