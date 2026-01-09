@@ -25,15 +25,18 @@ int totalModules
 Skip linkedModuleQueue
 
 // Initialize globals - EDIT ROOT_MODULE_PATH before running
+print "[DEBUG] Initializing global variables...\n"
 MAX_DEPTH = 2  // Original module (0) + 1 level of linked modules (1)
 OUTPUT_FILE = "output.json"
 ROOT_MODULE_PATH = "/ProjectA/HLR"  // <-- CHANGE THIS to your module path
 
+print "[DEBUG] Creating Skip lists...\n"
 visitedModules = create()  // Track visited modules to prevent duplicates
 outFile = null             // Will be opened at export start
 totalObjects = 0           // Counter for total objects processed
 totalModules = 0           // Counter for total modules processed
 linkedModuleQueue = create()  // Queue of linked modules to process
+print "[DEBUG] Global initialization complete.\n"
 
 // ----------------------------------------------------------------------------
 // UTILITY FUNCTIONS
@@ -113,11 +116,13 @@ void extractLinks(Object obj, int indent, int currentDepth) {
     string linkModName
     string currentModPath
 
+    print "[DEBUG] extractLinks: Starting for object " identifier(obj) "\n"
     firstLink = true
 
     outFile << getIndent(indent) "\"links\": [\n"
 
     // Process outgoing links
+    print "[DEBUG] extractLinks: Processing outgoing links...\n"
     for lnk in obj -> "*" do {
         if (!firstLink) outFile << ",\n"
         firstLink = false
@@ -144,6 +149,7 @@ void extractLinks(Object obj, int indent, int currentDepth) {
     }
 
     // Process incoming links
+    print "[DEBUG] extractLinks: Processing incoming links...\n"
     for lnk in obj <- "*" do {
         if (!firstLink) outFile << ",\n"
         firstLink = false
@@ -170,6 +176,7 @@ void extractLinks(Object obj, int indent, int currentDepth) {
     }
 
     outFile << "\n" getIndent(indent) "]"
+    print "[DEBUG] extractLinks: Completed for object " identifier(obj) "\n"
 }
 
 // ----------------------------------------------------------------------------
@@ -189,7 +196,9 @@ void extractAttributes(Object obj, int indent) {
     bool bValue
     string bStr
 
+    print "[DEBUG] extractAttributes: Starting for object " identifier(obj) "\n"
     m = module(obj)
+    print "[DEBUG] extractAttributes: Got module reference\n"
 
     for ad in m do {
         attrName = ad.name
@@ -237,6 +246,7 @@ void extractAttributes(Object obj, int indent) {
         // Clear any errors and restore error handling
         lastError()
     }
+    print "[DEBUG] extractAttributes: Completed for object " identifier(obj) "\n"
 }
 
 // ----------------------------------------------------------------------------
@@ -249,11 +259,15 @@ void processAllObjects(Module mod, int indent, int currentDepth) {
     bool firstObj
     int objLevel
 
+    print "[DEBUG] processAllObjects: Starting, module=" name(mod) "\n"
     firstObj = true
 
     for obj in entire mod do {
         // Skip deleted objects
-        if (isDeleted(obj)) continue
+        if (isDeleted(obj)) {
+            print "[DEBUG] processAllObjects: Skipping deleted object\n"
+            continue
+        }
 
         if (!firstObj) {
             outFile << ",\n"
@@ -263,22 +277,29 @@ void processAllObjects(Module mod, int indent, int currentDepth) {
         totalObjects++
         objLevel = level(obj)
 
+        print "[DEBUG] processAllObjects: Processing object #" totalObjects " id=" identifier(obj) " level=" objLevel "\n"
+
         outFile << getIndent(indent) "{\n"
 
         // Basic object information
+        print "[DEBUG] processAllObjects: Writing basic info...\n"
         outFile << getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
         outFile << ",\n" getIndent(indent + 1) "\"level\": " objLevel ""
         outFile << ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
 
         // Extract all attributes - writes directly to stream
+        print "[DEBUG] processAllObjects: Calling extractAttributes...\n"
         extractAttributes(obj, indent + 1)
 
         // Extract links - writes directly to stream
+        print "[DEBUG] processAllObjects: Calling extractLinks...\n"
         outFile << ",\n"
         extractLinks(obj, indent + 1, currentDepth)
 
         outFile << "\n" getIndent(indent) "}"
+        print "[DEBUG] processAllObjects: Object complete\n"
     }
+    print "[DEBUG] processAllObjects: All objects processed, total=" totalObjects "\n"
 }
 
 // ----------------------------------------------------------------------------
@@ -289,29 +310,34 @@ void processAllObjects(Module mod, int indent, int currentDepth) {
 void processModule(string modulePath, int depth, bool isFirst) {
     Module mod
 
+    print "[DEBUG] processModule: Enter, path=" modulePath " depth=" depth " isFirst=" isFirst "\n"
+
     // Check if already visited
     if (find(visitedModules, modulePath)) {
-        print "  Skipping already visited module: " modulePath "\n"
+        print "[DEBUG] processModule: Already visited, skipping\n"
         return
     }
 
-    print "Processing module (depth " depth "): " modulePath "\n"
+    print "[DEBUG] processModule: Marking as visited...\n"
 
     // Mark as visited
     put(visitedModules, modulePath, depth)
     totalModules++
 
     // Open module
+    print "[DEBUG] processModule: Opening module...\n"
     mod = read(modulePath, false)
     if (null mod) {
-        print "  ERROR: Cannot open module: " modulePath "\n"
+        print "[DEBUG] processModule: ERROR - Cannot open module!\n"
         return
     }
+    print "[DEBUG] processModule: Module opened successfully\n"
 
     if (!isFirst) {
         outFile << ",\n"
     }
 
+    print "[DEBUG] processModule: Writing module header to JSON...\n"
     outFile << getIndent(2) "{\n"
     outFile << getIndent(3) "\"modulePath\": \"" escapeJSON(modulePath) "\",\n"
     outFile << getIndent(3) "\"moduleName\": \"" escapeJSON(name(mod)) "\",\n"
@@ -319,13 +345,16 @@ void processModule(string modulePath, int depth, bool isFirst) {
     outFile << getIndent(3) "\"objects\": [\n"
 
     // Process all objects iteratively - writes directly to stream
+    print "[DEBUG] processModule: Calling processAllObjects...\n"
     processAllObjects(mod, 4, depth)
 
+    print "[DEBUG] processModule: Closing objects array...\n"
     outFile << "\n" getIndent(3) "]\n"
     outFile << getIndent(2) "}"
 
+    print "[DEBUG] processModule: Closing module...\n"
     close(mod)
-    print "  Completed module: " modulePath " (depth " depth ")\n"
+    print "[DEBUG] processModule: Module complete - " modulePath "\n"
 }
 
 // ----------------------------------------------------------------------------
@@ -337,6 +366,7 @@ void exportToJSON(string rootModulePath) {
     int linkedDepth
     bool firstLinked
 
+    print "[DEBUG] exportToJSON: Enter\n"
     print "\n===========================================\n"
     print "DOORS to JSON Export (Streaming Mode)\n"
     print "===========================================\n"
@@ -346,28 +376,35 @@ void exportToJSON(string rootModulePath) {
     print "===========================================\n\n"
 
     // Open output file FIRST - all writes go directly to file
-    print "Opening output file for streaming...\n"
+    print "[DEBUG] exportToJSON: Opening output file...\n"
     outFile = write(OUTPUT_FILE)
     if (null outFile) {
-        print "ERROR: Cannot create output file: " OUTPUT_FILE "\n"
+        print "[DEBUG] exportToJSON: ERROR - Cannot create output file!\n"
         return
     }
+    print "[DEBUG] exportToJSON: Output file opened successfully\n"
 
     // Write JSON header directly to file
+    print "[DEBUG] exportToJSON: Writing JSON header...\n"
     outFile << "{\n"
     outFile << getIndent(1) "\"rootModule\": \"" escapeJSON(rootModulePath) "\",\n"
     outFile << getIndent(1) "\"maxDepth\": " MAX_DEPTH ",\n"
     outFile << getIndent(1) "\"modules\": [\n"
 
     // Process root module - writes directly to file
+    print "[DEBUG] exportToJSON: Processing root module...\n"
     processModule(rootModulePath, 0, true)
 
     // Process linked modules from queue
+    print "[DEBUG] exportToJSON: Processing linked modules queue...\n"
     firstLinked = false
 
     for linkedPath in linkedModuleQueue do {
+        print "[DEBUG] exportToJSON: Checking linked module: " linkedPath "\n"
         if (find(linkedModuleQueue, linkedPath, linkedDepth)) {
+            print "[DEBUG] exportToJSON: linkedDepth=" linkedDepth " MAX_DEPTH=" MAX_DEPTH "\n"
             if (linkedDepth < MAX_DEPTH) {
+                print "[DEBUG] exportToJSON: Processing linked module...\n"
                 processModule(linkedPath, linkedDepth, firstLinked)
                 firstLinked = false
             }
@@ -375,10 +412,12 @@ void exportToJSON(string rootModulePath) {
     }
 
     // Close JSON structure
+    print "[DEBUG] exportToJSON: Writing JSON footer...\n"
     outFile << "\n" getIndent(1) "]\n"
     outFile << "}\n"
 
     // Close output file
+    print "[DEBUG] exportToJSON: Closing output file...\n"
     close(outFile)
 
     print "\n===========================================\n"
@@ -393,6 +432,9 @@ void exportToJSON(string rootModulePath) {
 // ----------------------------------------------------------------------------
 // MAIN SCRIPT ENTRY POINT
 // ----------------------------------------------------------------------------
+
+print "[DEBUG] MAIN: Script entry point reached\n"
+print "[DEBUG] MAIN: ROOT_MODULE_PATH = " ROOT_MODULE_PATH "\n"
 
 // Check if module path is configured
 if (null ROOT_MODULE_PATH || ROOT_MODULE_PATH == "") {
@@ -412,8 +454,11 @@ if (null ROOT_MODULE_PATH || ROOT_MODULE_PATH == "") {
 }
 
 // Run the export
+print "[DEBUG] MAIN: Calling exportToJSON...\n"
 exportToJSON(ROOT_MODULE_PATH)
 
 // Cleanup
+print "[DEBUG] MAIN: Cleanup - deleting Skip lists...\n"
 delete(visitedModules)
 delete(linkedModuleQueue)
+print "[DEBUG] MAIN: Script completed successfully!\n"
