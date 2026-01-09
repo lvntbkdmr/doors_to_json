@@ -19,7 +19,7 @@ string ROOT_MODULE_PATH  // Set this to your module path before running
 // GLOBAL VARIABLES
 // ----------------------------------------------------------------------------
 Skip visitedModules
-Buffer jsonOutput
+Stream outFile              // Output file stream for direct writing
 int totalObjects
 int totalModules
 Skip linkedModuleQueue
@@ -30,7 +30,7 @@ OUTPUT_FILE = "output.json"
 ROOT_MODULE_PATH = "/ProjectA/HLR"  // <-- CHANGE THIS to your module path
 
 visitedModules = create()  // Track visited modules to prevent duplicates
-jsonOutput = create()      // Main JSON output buffer
+outFile = null             // Will be opened at export start
 totalObjects = 0           // Counter for total objects processed
 totalModules = 0           // Counter for total modules processed
 linkedModuleQueue = create()  // Queue of linked modules to process
@@ -100,9 +100,8 @@ string dateToISO(string dateStr) {
 // LINK PROCESSING FUNCTIONS
 // ----------------------------------------------------------------------------
 
-// Extract links from an object and add to JSON buffer
-void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
-    bool hasLinks
+// Extract links from an object and write directly to output stream
+void extractLinks(Object obj, int indent, int currentDepth) {
     bool firstLink
     Link lnk
     Object targetObj
@@ -114,15 +113,13 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
     string linkModName
     string currentModPath
 
-    hasLinks = false
     firstLink = true
 
-    linkBuf += getIndent(indent) "\"links\": [\n"
+    outFile << getIndent(indent) "\"links\": [\n"
 
     // Process outgoing links
     for lnk in obj -> "*" do {
-        if (!hasLinks) hasLinks = true
-        if (!firstLink) linkBuf += ",\n"
+        if (!firstLink) outFile << ",\n"
         firstLink = false
 
         targetObj = target(lnk)
@@ -130,12 +127,12 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
         targetModPath = fullName(targetMod)
         linkModName = name(module(lnk))
 
-        linkBuf += getIndent(indent + 1) "{\n"
-        linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
-        linkBuf += getIndent(indent + 2) "\"direction\": \"outgoing\",\n"
-        linkBuf += getIndent(indent + 2) "\"targetModule\": \"" escapeJSON(targetModPath) "\",\n"
-        linkBuf += getIndent(indent + 2) "\"targetObjectId\": \"" escapeJSON(identifier(targetObj)) "\"\n"
-        linkBuf += getIndent(indent + 1) "}"
+        outFile << getIndent(indent + 1) "{\n"
+        outFile << getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
+        outFile << getIndent(indent + 2) "\"direction\": \"outgoing\",\n"
+        outFile << getIndent(indent + 2) "\"targetModule\": \"" escapeJSON(targetModPath) "\",\n"
+        outFile << getIndent(indent + 2) "\"targetObjectId\": \"" escapeJSON(identifier(targetObj)) "\"\n"
+        outFile << getIndent(indent + 1) "}"
 
         // Queue target module if it's different and within depth limit
         if (currentDepth < MAX_DEPTH - 1) {
@@ -148,8 +145,7 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
 
     // Process incoming links
     for lnk in obj <- "*" do {
-        if (!hasLinks) hasLinks = true
-        if (!firstLink) linkBuf += ",\n"
+        if (!firstLink) outFile << ",\n"
         firstLink = false
 
         sourceObj = source(lnk)
@@ -157,12 +153,12 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
         sourceModPath = fullName(sourceMod)
         linkModName = name(module(lnk))
 
-        linkBuf += getIndent(indent + 1) "{\n"
-        linkBuf += getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
-        linkBuf += getIndent(indent + 2) "\"direction\": \"incoming\",\n"
-        linkBuf += getIndent(indent + 2) "\"sourceModule\": \"" escapeJSON(sourceModPath) "\",\n"
-        linkBuf += getIndent(indent + 2) "\"sourceObjectId\": \"" escapeJSON(identifier(sourceObj)) "\"\n"
-        linkBuf += getIndent(indent + 1) "}"
+        outFile << getIndent(indent + 1) "{\n"
+        outFile << getIndent(indent + 2) "\"type\": \"" escapeJSON(linkModName) "\",\n"
+        outFile << getIndent(indent + 2) "\"direction\": \"incoming\",\n"
+        outFile << getIndent(indent + 2) "\"sourceModule\": \"" escapeJSON(sourceModPath) "\",\n"
+        outFile << getIndent(indent + 2) "\"sourceObjectId\": \"" escapeJSON(identifier(sourceObj)) "\"\n"
+        outFile << getIndent(indent + 1) "}"
 
         // Queue source module if it's different and within depth limit
         if (currentDepth < MAX_DEPTH - 1) {
@@ -173,15 +169,15 @@ void extractLinks(Object obj, Buffer linkBuf, int indent, int currentDepth) {
         }
     }
 
-    linkBuf += "\n" getIndent(indent) "]"
+    outFile << "\n" getIndent(indent) "]"
 }
 
 // ----------------------------------------------------------------------------
 // ATTRIBUTE EXTRACTION FUNCTIONS
 // ----------------------------------------------------------------------------
 
-// Extract all non-empty attributes from an object
-void extractAttributes(Object obj, Buffer attrBuf, int indent) {
+// Extract all non-empty attributes from an object and write directly to stream
+void extractAttributes(Object obj, int indent) {
     Module m
     AttrDef ad
     string attrName
@@ -192,7 +188,6 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
     Date dValue
     bool bValue
     string bStr
-    bool attrExists
 
     m = module(obj)
 
@@ -210,22 +205,22 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
         if (attrTypeName == "Text" || attrTypeName == "String" || attrTypeName == "RichText") {
             value = obj.(attrName)
             if (lastError() == "" && !null value && value != "") {
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
             }
         } else if (attrTypeName == "Integer") {
             iValue = obj.(attrName)
             if (lastError() == "" && !null iValue) {
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " iValue ""
             }
         } else if (attrTypeName == "Real") {
             rValue = obj.(attrName)
             if (lastError() == "" && !null rValue) {
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " rValue ""
             }
         } else if (attrTypeName == "Date") {
             dValue = obj.(attrName)
             if (lastError() == "" && !null dValue) {
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dateAndTime(dValue)) "\""
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" dateToISO(dateAndTime(dValue)) "\""
             }
         } else if (attrTypeName == "Boolean") {
             bValue = obj.(attrName)
@@ -235,7 +230,7 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
                 } else {
                     bStr = "false"
                 }
-                attrBuf += ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " bStr ""
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": " bStr ""
             }
         }
 
@@ -248,11 +243,9 @@ void extractAttributes(Object obj, Buffer attrBuf, int indent) {
 // OBJECT PROCESSING FUNCTIONS
 // ----------------------------------------------------------------------------
 
-// Process all objects in a module as a flat array
-void processAllObjects(Module mod, Buffer modBuf, int indent, int currentDepth) {
+// Process all objects in a module as a flat array - writes directly to stream
+void processAllObjects(Module mod, int indent, int currentDepth) {
     Object obj
-    Buffer attrBuf
-    Buffer linkBuf
     bool firstObj
     int objLevel
 
@@ -263,34 +256,28 @@ void processAllObjects(Module mod, Buffer modBuf, int indent, int currentDepth) 
         if (isDeleted(obj)) continue
 
         if (!firstObj) {
-            modBuf += ",\n"
+            outFile << ",\n"
         }
         firstObj = false
 
         totalObjects++
         objLevel = level(obj)
 
-        modBuf += getIndent(indent) "{\n"
+        outFile << getIndent(indent) "{\n"
 
         // Basic object information
-        modBuf += getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
-        modBuf += ",\n" getIndent(indent + 1) "\"level\": " objLevel ""
-        modBuf += ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
+        outFile << getIndent(indent + 1) "\"id\": \"" escapeJSON(identifier(obj)) "\""
+        outFile << ",\n" getIndent(indent + 1) "\"level\": " objLevel ""
+        outFile << ",\n" getIndent(indent + 1) "\"absoluteNumber\": \"" escapeJSON(obj."Absolute Number" "") "\""
 
-        // Extract all attributes
-        attrBuf = create()
-        extractAttributes(obj, attrBuf, indent + 1)
-        modBuf += tempStringOf(attrBuf)
-        delete(attrBuf)
+        // Extract all attributes - writes directly to stream
+        extractAttributes(obj, indent + 1)
 
-        // Extract links
-        modBuf += ",\n"
-        linkBuf = create()
-        extractLinks(obj, linkBuf, indent + 1, currentDepth)
-        modBuf += tempStringOf(linkBuf)
-        delete(linkBuf)
+        // Extract links - writes directly to stream
+        outFile << ",\n"
+        extractLinks(obj, indent + 1, currentDepth)
 
-        modBuf += "\n" getIndent(indent) "}"
+        outFile << "\n" getIndent(indent) "}"
     }
 }
 
@@ -298,8 +285,8 @@ void processAllObjects(Module mod, Buffer modBuf, int indent, int currentDepth) 
 // MODULE PROCESSING FUNCTIONS
 // ----------------------------------------------------------------------------
 
-// Process a single module and all its objects
-void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
+// Process a single module and all its objects - writes directly to stream
+void processModule(string modulePath, int depth, bool isFirst) {
     Module mod
 
     // Check if already visited
@@ -322,20 +309,20 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
     }
 
     if (!isFirst) {
-        modBuf += ",\n"
+        outFile << ",\n"
     }
 
-    modBuf += getIndent(2) "{\n"
-    modBuf += getIndent(3) "\"modulePath\": \"" escapeJSON(modulePath) "\",\n"
-    modBuf += getIndent(3) "\"moduleName\": \"" escapeJSON(name(mod)) "\",\n"
-    modBuf += getIndent(3) "\"depth\": " depth ",\n"
-    modBuf += getIndent(3) "\"objects\": [\n"
+    outFile << getIndent(2) "{\n"
+    outFile << getIndent(3) "\"modulePath\": \"" escapeJSON(modulePath) "\",\n"
+    outFile << getIndent(3) "\"moduleName\": \"" escapeJSON(name(mod)) "\",\n"
+    outFile << getIndent(3) "\"depth\": " depth ",\n"
+    outFile << getIndent(3) "\"objects\": [\n"
 
-    // Process all objects iteratively
-    processAllObjects(mod, modBuf, 4, depth)
+    // Process all objects iteratively - writes directly to stream
+    processAllObjects(mod, 4, depth)
 
-    modBuf += "\n" getIndent(3) "]\n"
-    modBuf += getIndent(2) "}"
+    outFile << "\n" getIndent(3) "]\n"
+    outFile << getIndent(2) "}"
 
     close(mod)
     print "  Completed module: " modulePath " (depth " depth ")\n"
@@ -347,33 +334,38 @@ void processModule(string modulePath, int depth, Buffer modBuf, bool isFirst) {
 
 void exportToJSON(string rootModulePath) {
     string exportDate
-    Buffer moduleBuf
     string linkedPath
     int linkedDepth
     bool firstLinked
-    Stream outFile
 
     print "\n===========================================\n"
-    print "DOORS to JSON Export\n"
+    print "DOORS to JSON Export (Streaming Mode)\n"
     print "===========================================\n"
     print "Root module: " rootModulePath "\n"
     print "Max depth: " MAX_DEPTH "\n"
     print "Output file: " OUTPUT_FILE "\n"
     print "===========================================\n\n"
 
+    // Open output file FIRST - all writes go directly to file
+    print "Opening output file for streaming...\n"
+    outFile = write(OUTPUT_FILE)
+    if (null outFile) {
+        print "ERROR: Cannot create output file: " OUTPUT_FILE "\n"
+        return
+    }
+
     // Get current date/time
     exportDate = dateAndTime(today())
 
-    // Start JSON structure
-    jsonOutput += "{\n"
-    jsonOutput += getIndent(1) "\"exportDate\": \"" escapeJSON(exportDate) "\",\n"
-    jsonOutput += getIndent(1) "\"rootModule\": \"" escapeJSON(rootModulePath) "\",\n"
-    jsonOutput += getIndent(1) "\"maxDepth\": " MAX_DEPTH ",\n"
-    jsonOutput += getIndent(1) "\"modules\": [\n"
+    // Write JSON header directly to file
+    outFile << "{\n"
+    outFile << getIndent(1) "\"exportDate\": \"" escapeJSON(exportDate) "\",\n"
+    outFile << getIndent(1) "\"rootModule\": \"" escapeJSON(rootModulePath) "\",\n"
+    outFile << getIndent(1) "\"maxDepth\": " MAX_DEPTH ",\n"
+    outFile << getIndent(1) "\"modules\": [\n"
 
-    // Process root module
-    moduleBuf = create()
-    processModule(rootModulePath, 0, moduleBuf, true)
+    // Process root module - writes directly to file
+    processModule(rootModulePath, 0, true)
 
     // Process linked modules from queue
     firstLinked = false
@@ -381,33 +373,20 @@ void exportToJSON(string rootModulePath) {
     for linkedPath in linkedModuleQueue do {
         if (find(linkedModuleQueue, linkedPath, linkedDepth)) {
             if (linkedDepth < MAX_DEPTH) {
-                processModule(linkedPath, linkedDepth, moduleBuf, firstLinked)
+                processModule(linkedPath, linkedDepth, firstLinked)
                 firstLinked = false
             }
         }
     }
 
-    jsonOutput += tempStringOf(moduleBuf)
-    delete(moduleBuf)
-
     // Close JSON structure
-    jsonOutput += "\n" getIndent(1) "]\n"
-    jsonOutput += "}\n"
+    outFile << "\n" getIndent(1) "]\n"
+    outFile << "}\n"
 
-    // Write to file
-    print "\n===========================================\n"
-    print "Writing output to file...\n"
-
-    outFile = write(OUTPUT_FILE)
-    if (null outFile) {
-        print "ERROR: Cannot create output file: " OUTPUT_FILE "\n"
-        return
-    }
-
-    outFile << tempStringOf(jsonOutput)
+    // Close output file
     close(outFile)
 
-    print "===========================================\n"
+    print "\n===========================================\n"
     print "Export completed successfully!\n"
     print "===========================================\n"
     print "Total modules processed: " totalModules "\n"
@@ -443,4 +422,3 @@ exportToJSON(ROOT_MODULE_PATH)
 // Cleanup
 delete(visitedModules)
 delete(linkedModuleQueue)
-delete(jsonOutput)
