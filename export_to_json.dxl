@@ -43,10 +43,12 @@ print "[DEBUG] Global initialization complete.\n"
 // ----------------------------------------------------------------------------
 
 // Escape special characters for JSON string values
+// Also filters out non-printable control characters
 string escapeJSON(string value) {
     Buffer buf
     int len
     int i
+    int charCode
     string c
     string result
 
@@ -57,6 +59,16 @@ string escapeJSON(string value) {
 
     for (i = 0; i < len; i++) {
         c = value[i:i]
+        charCode = intOf(c[0])
+
+        // Skip non-printable characters (control chars 0-31 except tab, newline, carriage return)
+        // and extended chars that may be binary data (128-255 range often indicates binary)
+        if (charCode < 32 && charCode != 9 && charCode != 10 && charCode != 13) {
+            continue
+        }
+        if (charCode > 126 && charCode < 160) {
+            continue
+        }
 
         if (c == "\\") {
             buf += "\\\\"
@@ -211,8 +223,16 @@ void extractAttributes(Object obj, int indent) {
         noError
 
         // Get attribute value based on type
-        if (attrTypeName == "Text" || attrTypeName == "String" || attrTypeName == "RichText") {
+        if (attrTypeName == "Text" || attrTypeName == "String") {
             value = obj.(attrName)
+            if (lastError() == "" && !null value && value != "") {
+                outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
+            }
+        } else if (attrTypeName == "RichText") {
+            // For RichText, access directly - escapeJSON will filter binary chars
+            // Skip "Object Text" as it's the main content handled elsewhere
+            if (attrName == "Object Text") continue
+            value = obj.(attrName) ""
             if (lastError() == "" && !null value && value != "") {
                 outFile << ",\n" getIndent(indent) "\"" escapeJSON(attrName) "\": \"" escapeJSON(value) "\""
             }
